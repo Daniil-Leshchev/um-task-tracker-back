@@ -23,7 +23,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "django_filters",
-    "core"
+    "users",
+    "catalogs",
+    "tasks"
 ]
 
 MIDDLEWARE = [
@@ -70,7 +72,7 @@ DATABASES = {
     }
 }
 
-AUTH_USER_MODEL = 'core.Curator'
+AUTH_USER_MODEL = 'users.Curator'
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -104,4 +106,5 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": False,
     "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id_tg",
 }
