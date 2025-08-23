@@ -4,13 +4,9 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from catalogs.models import Subject, Department, Role
 from django.contrib.auth.password_validation import validate_password
+from .constants import ADMIN_ROLE_IDS, MANAGER_ROLE_IDS
 
 Curator = get_user_model()
-
-ADMIN_ROLES: set[str] = {
-    "Старший наставник",
-    "Руководитель предмета",
-}
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -124,11 +120,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return parts[-1] if len(parts) > 1 else ''
 
     def get_is_admin(self, obj) -> bool:
-        try:
-            role_name = getattr(getattr(obj, 'role', None), 'role', '') or ''
-        except Exception:
-            role_name = ''
-        return role_name in ADMIN_ROLES
+        role_id = getattr(getattr(obj, 'role', None), 'id_role', None)
+        return role_id in ADMIN_ROLE_IDS
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -156,15 +149,15 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         if current or new or confirm:
             if not current or not new or not confirm:
                 raise serializers.ValidationError(
-                    "Для смены пароля нужно заполнить все три поля: текущий пароль, новый пароль и подтверждение")
+                    'Для смены пароля нужно заполнить все три поля: текущий пароль, новый пароль и подтверждение')
 
             if not user.check_password(current):
                 raise serializers.ValidationError(
-                    {"current_password": "Текущий пароль неверен"})
+                    {'current_password': 'Текущий пароль неверен'})
 
             if new != confirm:
                 raise serializers.ValidationError(
-                    {"new_password_confirm": "Новый пароль и подтверждение не совпадают"})
+                    {'new_password_confirm': 'Новый пароль и подтверждение не совпадают'})
 
         return attrs
 
@@ -175,3 +168,47 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+
+
+class AdminUserListSerializer(serializers.ModelSerializer):
+    subject = serializers.CharField(source='subject.subject', read_only=True)
+    department = serializers.CharField(
+        source='department.department', read_only=True)
+    role = serializers.CharField(source='role.role', read_only=True)
+
+    need_confirmation = serializers.SerializerMethodField()
+    mentor_name = serializers.SerializerMethodField()
+    is_manager = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Curator
+        fields = (
+            'id_tg',
+            'name',
+            'subject',
+            'department',
+            'role',
+            'role_id',
+            'need_confirmation',
+            'mentor_name',
+            'is_manager'
+        )
+
+    def get_need_confirmation(self, obj) -> bool:
+        return not bool(obj.confirm)
+
+    def get_mentor_name(self, obj) -> str | None:
+        email = (obj.mail_mg or '').strip().lower()
+        if not email:
+            return None
+        mentor = Curator.objects.filter(
+            email__iexact=email).only('name').first()
+        return mentor.name if mentor else None
+
+    def get_is_manager(self, obj):
+        role_id = getattr(getattr(obj, 'role', None), 'id_role', None)
+        return bool(role_id in MANAGER_ROLE_IDS)
+
+
+class ConfirmPayloadSerializer(serializers.Serializer):
+    confirm = serializers.BooleanField(required=False, default=True)
