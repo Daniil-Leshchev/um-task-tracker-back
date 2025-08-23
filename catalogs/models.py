@@ -10,6 +10,7 @@ class Role(models.Model):
         managed = False
         verbose_name = "Роль"
         verbose_name_plural = "Роли"
+        ordering = ('id_role',)
 
     def __str__(self):
         return self.role
@@ -25,6 +26,7 @@ class Department(models.Model):
         managed = False
         verbose_name = "Отдел"
         verbose_name_plural = "Отделы"
+        ordering = ('id_department',)
 
     def __str__(self):
         return self.department
@@ -39,6 +41,7 @@ class Subject(models.Model):
         managed = False
         verbose_name = "Предмет"
         verbose_name_plural = "Предметы"
+        ordering = ('id_subject',)
 
     def __str__(self):
         return self.subject
@@ -53,6 +56,7 @@ class Status(models.Model):
         managed = False
         verbose_name = "Статус"
         verbose_name_plural = "Статусы"
+        ordering = ('id_status',)
 
     def __str__(self):
         return self.status
