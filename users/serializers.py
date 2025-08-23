@@ -170,7 +170,7 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         return instance
 
 
-class AdminUserListSerializer(serializers.ModelSerializer):
+class AdminUserSerializer(serializers.ModelSerializer):
     subject = serializers.CharField(source='subject.subject', read_only=True)
     department = serializers.CharField(
         source='department.department', read_only=True)
@@ -212,3 +212,16 @@ class AdminUserListSerializer(serializers.ModelSerializer):
 
 class ConfirmPayloadSerializer(serializers.Serializer):
     confirm = serializers.BooleanField(required=False, default=True)
+
+
+class MentorShortSerializer(serializers.ModelSerializer):
+    role_id = serializers.IntegerField(source='role.id_role', read_only=True)
+    role = serializers.CharField(source='role.role', read_only=True)
+    subject = serializers.CharField(
+        source='subject.subject', read_only=True, allow_null=True)
+    department = serializers.CharField(
+        source='department.department', read_only=True, allow_null=True)
+
+    class Meta:
+        model = Curator
+        fields = ('id_tg', 'name', 'role_id', 'role', 'subject', 'department')
