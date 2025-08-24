@@ -4,8 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import Curator
 from .constants import ROLE_TO_ALLOWED_MENTOR_ROLE_IDS
-from .permissions import IsAdmin
-from rest_framework.permissions import IsAuthenticated
+from .permissions import IsAdmin, IsConfirmedUser
 from rest_framework.generics import ListAPIView
 from rest_framework import generics
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -49,7 +48,7 @@ class UserProfileUpdateView(generics.RetrieveUpdateAPIView):
 
 class AdminUserListView(ListAPIView):
     serializer_class = AdminUserSerializer
-    permission_classes = (IsAuthenticated, IsAdmin,)
+    permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
 
     def get_queryset(self):
         qs = Curator.objects.select_related('subject', 'department', 'role').all()
@@ -61,7 +60,7 @@ class AdminUserListView(ListAPIView):
 
 
 class ConfirmUserView(APIView):
-    permission_classes = (IsAuthenticated, IsAdmin,)
+    permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
 
     def patch(self, request, id_tg: int):
         user = get_object_or_404(Curator.objects.select_related('subject', 'department', 'role'),
@@ -81,12 +80,12 @@ class ConfirmUserView(APIView):
 class DeleteUserView(generics.DestroyAPIView):
     queryset = Curator.objects.all()
     serializer_class = AdminUserSerializer
-    permission_classes = (IsAdmin,)
+    permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
     lookup_field = 'id_tg'
 
 
 class MentorListForAssignmentView(APIView):
-    permission_classes = (IsAuthenticated, IsAdmin,)
+    permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
 
     def get(self, request):
         target_id_tg = request.query_params.get('target_id_tg')
@@ -125,7 +124,7 @@ class MentorListForAssignmentView(APIView):
 
 
 class AssignMentorView(APIView):
-    permission_classes = (IsAuthenticated, IsAdmin,)
+    permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
 
     def patch(self, request, id_tg: int):
         mentor_id_tg = request.data.get('mentor_id_tg')
