@@ -86,6 +86,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     last_name = serializers.SerializerMethodField()
 
     is_admin = serializers.SerializerMethodField()
+    is_confirmed = serializers.BooleanField(source='confirm', read_only=True)
 
     class Meta:
         model = Curator
@@ -96,7 +97,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'subject',
             'department',
             'role',
-            'is_admin'
+            'is_admin',
+            'is_confirmed'
         )
         read_only_fields = (
             'id_tg',
@@ -104,7 +106,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'subject',
             'department',
             'role',
-            'is_admin'
+            'is_admin',
+            'is_confirmed'
         )
 
     def get_first_name(self, obj) -> str:

@@ -7,10 +7,7 @@ from users.constants import (
 
 
 def allowed_recipients_base_qs(author: Curator) -> QuerySet[Curator]:
-    """Вернёт базовый QS тех, кому автор В ПРИНЦИПЕ может выдавать задачи."""
     role_id = getattr(getattr(author, 'role', None), 'id_role', None)
-
-    # тут проверка, что пользователь подтвержденный
 
     # Суперюзеры — всем
     if role_id in ADMIN_ROLE_IDS or role_id == ROLE_OKK:
@@ -25,14 +22,7 @@ def allowed_recipients_base_qs(author: Curator) -> QuerySet[Curator]:
                         department_id=author.department_id,
                         mail_mg=author.email))  # связь «мой куратор»
 
-    # # Наставник личных — только «свои» личные кураторы
-    # if role_id == ROLE_MENTOR_PERSONAL:
-    #     return (Curator.objects
-    #             .filter(subject_id=author.subject_id,
-    #                     department_id=author.department_id,
-    #                     mail_mg=author.email))
-
-    # Менеджер чата (пример) — стандарт-кураторы своего отдела
+    # Менеджер чата — стандарт-кураторы
     if role_id == ROLE_CHAT_MANAGER:
         return (Curator.objects
                 .filter(subject_id=author.subject_id)
