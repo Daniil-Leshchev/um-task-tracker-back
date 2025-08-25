@@ -1,46 +1,30 @@
 from typing import Iterable, Optional
 from django.utils import timezone
 from django.db import transaction, connection
-from django.db.models import QuerySet
 from users.models import Curator
 from tasks.models import Task, Assignment, Report
 from .policies import allowed_recipients_base_qs
-
+from django.db.models import (
+    Q, Count, F, Case, When, Value, QuerySet, FloatField, CharField,
+    Min, OuterRef, Subquery, Exists
+)
+from django.contrib.postgres.aggregates import ArrayAgg
 NOT_COMPLETED_STATUS = 3
 
-SUBJECT_PREFIXES = {
-    'информатика': 'инф',
-    'математика': 'мат',
-    'русский язык': 'рус',
-    'английский язык': 'анг',
-    'биология': 'био',
-    'география': 'гео',
-    'история': 'ист',
-    'литература': 'лит',
-    'обществознание': 'общ',
-    'физика': 'физ',
-    'химия': 'хим',
-    'окк': 'окк',
-}
-
-
-def _subject_prefix_for(author: Curator) -> str:
-    """Get the subject prefix for the given curator's subject."""
-    name = getattr(getattr(author, "subject", None), "name", None)
-    if name:
-        name = name.lower()
-        return SUBJECT_PREFIXES.get(name, name[:3].lower() if len(name) >= 3 else 'tsk')
-    return 'tsk'
+# статус-ы "выполнено"
+COMPLETED_STATUS_IDS = (1, 2)
+# статусы, которые не должны попадать в общий подсчёт (отменено/ошибка отправки)
+EXCLUDE_FROM_TOTAL_STATUS_IDS = (4, 5)
 
 
 def _next_task_id_for_subject(author: Curator) -> str:
-    """
-    Generate the next unique task id for the subject of the given author.
-    Uses advisory lock to avoid race conditions.
-    """
     subject_id = getattr(getattr(author, "subject", None), "id_subject", None)
     lock_id = subject_id if subject_id is not None else 0
-    prefix = _subject_prefix_for(author)
+    name = getattr(getattr(author, "subject", None), "name", None)
+    if name:
+        prefix = name[:3].lower()
+    else:
+        prefix = "tsk"
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s);", [lock_id])
         qs = Task.objects.filter(id_task__startswith=f"{prefix}-")
@@ -150,3 +134,88 @@ def create_task_and_assign(
     Report.objects.bulk_create(reports, batch_size=1000)
 
     return task
+
+
+def visible_assignments_for(user: Curator):
+    allowed_curators = allowed_recipients_base_qs(user).values('id_tg')
+    return Assignment.objects.filter(curator_id__in=Subquery(allowed_curators))
+
+
+def task_cards_queryset(
+    user: Curator, *,
+    scope: str = 'all',
+    subject_id: int | None = None,
+    department_id: int | None = None,
+    status: str | None = None,
+    q: str | None = None,
+):
+    ass_qs = visible_assignments_for(user) \
+        .select_related('task')
+
+    ass_qs = ass_qs.filter(task__author__subject_id=user.subject_id)
+
+    if subject_id:
+        ass_qs = ass_qs.filter(task__author__subject_id=subject_id)
+    if department_id:
+        ass_qs = ass_qs.filter(department_id=department_id)
+    if q:
+        ass_qs = ass_qs.filter(task__name__icontains=q)
+
+    task_ids = ass_qs.values('task_id').distinct()
+    qs = Task.objects.filter(id_task__in=Subquery(task_ids))
+
+    # Исключаем задачи, которые хотя бы у одного видимого получателя были отменены
+    cancelled_for_visible = Report.objects.filter(
+        task_id=OuterRef('id_task'),
+        status_id=4,
+        curator_id__in=Subquery(ass_qs.values('curator_id')),
+    )
+    qs = qs.annotate(_has_cancelled=Exists(cancelled_for_visible)) \
+           .filter(_has_cancelled=False)
+
+    if scope in ('group', 'individual'):
+        ass_count = (ass_qs.values('task_id')
+                           .annotate(n=Count('curator_id'))
+                           .filter(task_id=OuterRef('id_task'))
+                           .values('n')[:1])
+        qs = qs.annotate(_n=Subquery(ass_count))
+        qs = qs.filter(_n__gte=2) if scope == 'group' else qs.filter(_n=1)
+
+    qs = qs.annotate(
+        total=Count(
+            'reports',
+            filter=Q(
+                reports__curator_id__in=Subquery(ass_qs.values('curator_id'))
+            ) & ~Q(reports__status_id__in=EXCLUDE_FROM_TOTAL_STATUS_IDS),
+            distinct=True,
+        ),
+        completed=Count(
+            'reports',
+            filter=Q(
+                reports__curator_id__in=Subquery(ass_qs.values('curator_id'))
+            ) & Q(reports__status_id__in=COMPLETED_STATUS_IDS),
+            distinct=True,
+        ),
+    ).annotate(
+        not_completed=F('total') - F('completed'),
+        progress=Case(
+            When(total__gt=0, then=(100.0 * F('completed') / F('total'))),
+            default=Value(0.0),
+            output_field=FloatField(),
+        ),
+        card_status=Case(
+            When(total__gt=0, completed=F('total'), then=Value('Завершено')),
+            When(completed__gt=0, then=Value('В процессе')),
+            default=Value('Не начато'),
+            output_field=CharField(),
+        ),
+        sample_names=ArrayAgg('assignments__curator__name',
+                              filter=Q(assignments__in=ass_qs),
+                              distinct=True),
+        created=Min(
+            'reports__timestamp_start',
+            filter=Q(reports__curator_id__in=Subquery(ass_qs.values('curator_id')))
+        ),
+    )
+
+    return qs

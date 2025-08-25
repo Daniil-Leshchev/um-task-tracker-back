@@ -14,8 +14,8 @@ from users.constants import (
     ROLE_CURATOR_STANDARD, ROLE_MENTOR_PERSONAL, ROLE_MENTOR_STANDARD,
     ROLE_CHAT_MANAGER, ROLE_OKK
 )
-from .services import AssignmentInput, create_task_and_assign
-from .serializers import TaskCreateSerializer
+from .services import AssignmentInput, create_task_and_assign, task_cards_queryset
+from .serializers import TaskCreateSerializer, TaskCardSerializer
 
 
 class AssignmentPolicyView(APIView):
@@ -167,3 +167,29 @@ class AllowedRecipientsListView(APIView):
 
         data = RecipientCuratorSerializer(qs, many=True).data
         return Response(data, status=status.HTTP_200_OK)
+
+
+class TaskCardListView(APIView):
+    permission_classes = (IsAuthenticated, IsConfirmedUser)
+
+    def get(self, request):
+        scope = request.query_params.get('scope', 'all')
+        subject_id = request.query_params.get('subject_id')
+        department_id = request.query_params.get('department_id')
+        q = request.query_params.get('q')
+
+        try:
+            subject_id = int(subject_id) if subject_id else None
+            department_id = int(department_id) if department_id else None
+        except ValueError:
+            return Response({'detail': 'IDs must be integers'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = task_cards_queryset(
+            request.user,
+            scope=scope,
+            subject_id=subject_id,
+            department_id=department_id,
+            q=q,
+        ).order_by('-deadline', '-id_task')
+
+        return Response(TaskCardSerializer(qs, many=True).data)

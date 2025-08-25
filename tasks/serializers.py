@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from tasks.models import Task
 
 Curator = get_user_model()
 
@@ -43,3 +44,28 @@ class RecipientCuratorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Curator
         fields = ('id_tg', 'name', 'role', 'subject', 'department')
+
+
+class TaskCardSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='id_task')
+    title = serializers.CharField(source='name')
+    status = serializers.CharField(source='card_status')
+    progress = serializers.IntegerField()
+    completed = serializers.IntegerField()
+    total = serializers.IntegerField()
+    notCompleted = serializers.IntegerField(source='not_completed')
+    deadline = serializers.DateTimeField()
+    created = serializers.DateTimeField(
+        required=False, allow_null=True)
+    description = serializers.CharField()
+
+    sampleCurators = serializers.SerializerMethodField()
+
+    def get_sampleCurators(self, obj):
+        arr = getattr(obj, 'sample_names', []) or []
+        return arr[:3]
+
+    class Meta:
+        model = Task
+        fields = ('id', 'title', 'status', 'progress', 'completed', 'total', 'notCompleted',
+                  'deadline', 'created', 'description', 'sampleCurators')
