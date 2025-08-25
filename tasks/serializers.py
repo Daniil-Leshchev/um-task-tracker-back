@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from tasks.models import Task
-
+from .models import Task, Report
+from .constants import COMPLETED_STATUS, COMPLETED_LATE_STATUS, NOT_COMPLETED_STATUS
 Curator = get_user_model()
 
 
@@ -69,3 +69,33 @@ class TaskCardSerializer(serializers.ModelSerializer):
         model = Task
         fields = ('id', 'title', 'status', 'progress', 'completed', 'total', 'notCompleted',
                   'deadline', 'created', 'description', 'sampleCurators')
+
+
+STATUS_MAP = {
+    COMPLETED_STATUS: 'completed',
+    COMPLETED_LATE_STATUS:    'completed_late',
+    NOT_COMPLETED_STATUS:     'not_completed',
+}
+
+
+class TaskDetailSerializer(serializers.ModelSerializer):
+    id_tg = serializers.IntegerField(source='curator.id_tg', read_only=True)
+    name = serializers.CharField(source='curator.name', read_only=True)
+    role = serializers.CharField(source='curator.role.role', read_only=True)
+
+    completedAt = serializers.DateTimeField(
+        source='timestamp_end', allow_null=True, read_only=True)
+    reportUrl = serializers.CharField(
+        source='report_url', allow_null=True, read_only=True)
+    reportText = serializers.CharField(
+        source='report_text', allow_null=True, read_only=True)
+
+    status = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Report
+        fields = ('id_tg', 'name', 'role', 'status',
+                  'completedAt', 'reportUrl', 'reportText')
+
+    def get_status(self, obj):
+        return STATUS_MAP.get(getattr(obj, 'status_id', None), 'not_completed')

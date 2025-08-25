@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from tasks.services import AssignmentInput, build_targets_qs
 from tasks.serializers import RecipientCuratorSerializer
 from users.models import Curator
@@ -15,7 +16,9 @@ from users.constants import (
     ROLE_CHAT_MANAGER, ROLE_OKK
 )
 from .services import AssignmentInput, create_task_and_assign, task_cards_queryset
-from .serializers import TaskCreateSerializer, TaskCardSerializer
+from .serializers import TaskCreateSerializer, TaskCardSerializer, TaskDetailSerializer
+from .constants import EXCLUDE_FROM_TOTAL_STATUSES
+from .models import Task, Report
 
 
 class AssignmentPolicyView(APIView):
@@ -193,3 +196,18 @@ class TaskCardListView(APIView):
         ).order_by('-deadline', '-id_task')
 
         return Response(TaskCardSerializer(qs, many=True).data)
+
+
+class TaskDetailView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, task_id: int):
+        get_object_or_404(Task, pk=task_id)
+
+        qs = (Report.objects
+              .select_related('curator', 'curator__role')
+              .filter(task_id=task_id)
+              .exclude(status_id__in=EXCLUDE_FROM_TOTAL_STATUSES))
+
+        data = TaskDetailSerializer(qs, many=True).data
+        return Response(data)

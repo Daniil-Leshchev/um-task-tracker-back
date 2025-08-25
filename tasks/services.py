@@ -9,12 +9,7 @@ from django.db.models import (
     Min, OuterRef, Subquery, Exists
 )
 from django.contrib.postgres.aggregates import ArrayAgg
-NOT_COMPLETED_STATUS = 3
-
-# статус-ы "выполнено"
-COMPLETED_STATUS_IDS = (1, 2)
-# статусы, которые не должны попадать в общий подсчёт (отменено/ошибка отправки)
-EXCLUDE_FROM_TOTAL_STATUS_IDS = (4, 5)
+from .constants import NOT_COMPLETED_STATUS, EXCLUDE_FROM_TOTAL_STATUSES, COMPLETED_STATUSES
 
 
 def _next_task_id_for_subject(author: Curator) -> str:
@@ -186,14 +181,14 @@ def task_cards_queryset(
             'reports',
             filter=Q(
                 reports__curator_id__in=Subquery(ass_qs.values('curator_id'))
-            ) & ~Q(reports__status_id__in=EXCLUDE_FROM_TOTAL_STATUS_IDS),
+            ) & ~Q(reports__status_id__in=EXCLUDE_FROM_TOTAL_STATUSES),
             distinct=True,
         ),
         completed=Count(
             'reports',
             filter=Q(
                 reports__curator_id__in=Subquery(ass_qs.values('curator_id'))
-            ) & Q(reports__status_id__in=COMPLETED_STATUS_IDS),
+            ) & Q(reports__status_id__in=COMPLETED_STATUSES),
             distinct=True,
         ),
     ).annotate(
