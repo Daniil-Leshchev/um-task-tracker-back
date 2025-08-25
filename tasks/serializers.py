@@ -99,3 +99,26 @@ class TaskDetailSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj):
         return STATUS_MAP.get(getattr(obj, 'status_id', None), 'not_completed')
+
+
+class ReportDetailSerializer(serializers.ModelSerializer):
+    curator = serializers.CharField(source='curator.name', read_only=True)
+    role = serializers.CharField(source='curator.role.role', read_only=True)
+    task = serializers.CharField(source='task.name', read_only=True)
+    deadline = serializers.DateTimeField(
+        source='task.deadline', read_only=True)
+    status = serializers.SerializerMethodField()
+    completedAt = serializers.DateTimeField(
+        source='timestamp_end', read_only=True)
+    reportUrl = serializers.CharField(
+        source='report_url', read_only=True, allow_null=True)
+    reportText = serializers.CharField(
+        source='report_text', read_only=True, allow_null=True)
+
+    class Meta:
+        model = Report
+        fields = ('id_report', 'curator', 'role', 'task', 'status',
+                  'completedAt', 'deadline', 'reportUrl', 'reportText')
+
+    def get_status(self, obj):
+        return STATUS_MAP.get(getattr(obj, 'status_id', None), 'not_completed')

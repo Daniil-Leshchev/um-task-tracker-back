@@ -16,7 +16,7 @@ from users.constants import (
     ROLE_CHAT_MANAGER, ROLE_OKK
 )
 from .services import AssignmentInput, create_task_and_assign, task_cards_queryset
-from .serializers import TaskCreateSerializer, TaskCardSerializer, TaskDetailSerializer
+from .serializers import TaskCreateSerializer, TaskCardSerializer, TaskDetailSerializer, ReportDetailSerializer
 from .constants import EXCLUDE_FROM_TOTAL_STATUSES
 from .models import Task, Report
 
@@ -199,7 +199,7 @@ class TaskCardListView(APIView):
 
 
 class TaskDetailView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsConfirmedUser)
 
     def get(self, request, task_id: int):
         get_object_or_404(Task, pk=task_id)
@@ -211,3 +211,16 @@ class TaskDetailView(APIView):
 
         data = TaskDetailSerializer(qs, many=True).data
         return Response(data)
+
+
+class ReportDetailView(APIView):
+    permission_classes = (IsAuthenticated, IsConfirmedUser)
+
+    def get(self, request, task_id, id_tg):
+        report = get_object_or_404(
+            Report.objects.select_related('task', 'curator', 'curator__role'),
+            task__id_task=task_id,
+            curator__id_tg=id_tg
+        )
+        data = ReportDetailSerializer(report).data
+        return Response(data, status=status.HTTP_200_OK)
