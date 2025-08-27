@@ -224,6 +224,13 @@ def task_cards_queryset(
             filter=Q(reports__curator_id__in=Subquery(
                 rep_qs.values('curator_id')))
         ),
+        on_time=Count(
+            'reports',
+            filter=Q(reports__curator_id__in=Subquery(rep_qs.values('curator_id'))) &
+            Q(reports__status_id__in=COMPLETED_STATUSES) &
+            Q(reports__timestamp_end__lte=F('deadline')),
+            distinct=True,
+        ),
     )
 
     return qs

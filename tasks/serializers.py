@@ -61,6 +61,8 @@ class TaskCardSerializer(serializers.ModelSerializer):
 
     sampleCurators = serializers.SerializerMethodField()
 
+    on_time = serializers.IntegerField(read_only=True)  # оставить
+
     def get_sampleCurators(self, obj):
         arr = getattr(obj, 'sample_names', []) or []
         return arr[:3]
@@ -68,7 +70,7 @@ class TaskCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = ('id', 'title', 'status', 'progress', 'completed', 'total', 'notCompleted',
-                  'deadline', 'created', 'description', 'sampleCurators')
+                  'deadline', 'created', 'description', 'sampleCurators', 'on_time')
 
 
 STATUS_MAP = {
