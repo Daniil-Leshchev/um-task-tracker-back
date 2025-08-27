@@ -13,26 +13,26 @@ from .constants import NOT_COMPLETED_STATUS, EXCLUDE_FROM_TOTAL_STATUSES, COMPLE
 
 
 def _next_task_id_for_subject(author: Curator) -> str:
-    subject_id = getattr(getattr(author, "subject", None), "id_subject", None)
+    subject_id = getattr(getattr(author, 'subject', None), 'id_subject', None)
     lock_id = subject_id if subject_id is not None else 0
-    name = getattr(getattr(author, "subject", None), "name", None)
+    name = getattr(getattr(author, 'subject', None), 'name', None)
     if name:
         prefix = name[:3].lower()
     else:
-        prefix = "tsk"
+        prefix = 'tsk'
     with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(%s);", [lock_id])
-        qs = Task.objects.filter(id_task__startswith=f"{prefix}-")
+        cursor.execute('SELECT pg_advisory_xact_lock(%s);', [lock_id])
+        qs = Task.objects.filter(id_task__startswith=f'{prefix}-')
         max_num = 0
         for t in qs:
             try:
-                suffix = t.id_task.split("-", 1)[1]
+                suffix = t.id_task.split('-', 1)[1]
                 num = int(suffix)
                 if num > max_num:
                     max_num = num
             except Exception:
                 continue
-        return f"{prefix}-{max_num + 1}"
+        return f'{prefix}-{max_num + 1}'
 
 
 class AssignmentInput:
@@ -131,9 +131,11 @@ def create_task_and_assign(
     return task
 
 
-def visible_assignments_for(user: Curator):
+def visible_reports_for(user: Curator):
     allowed_curators = allowed_recipients_base_qs(user).values('id_tg')
-    return Assignment.objects.filter(curator_id__in=Subquery(allowed_curators))
+    return (Report.objects
+            .select_related('task', 'curator', 'curator__role', 'curator__department', 'curator__subject')
+            .filter(curator_id__in=Subquery(allowed_curators)))
 
 
 def task_cards_queryset(
@@ -144,51 +146,58 @@ def task_cards_queryset(
     status: str | None = None,
     q: str | None = None,
 ):
-    ass_qs = visible_assignments_for(user) \
-        .select_related('task')
+    rep_qs = visible_reports_for(user)
 
-    ass_qs = ass_qs.filter(task__author__subject_id=user.subject_id)
+    rep_qs = rep_qs.filter(task__author__subject_id=user.subject_id)
 
     if subject_id:
-        ass_qs = ass_qs.filter(task__author__subject_id=subject_id)
+        rep_qs = rep_qs.filter(curator__subject_id=subject_id)
     if department_id:
-        ass_qs = ass_qs.filter(department_id=department_id)
+        rep_qs = rep_qs.filter(curator__department_id=department_id)
     if q:
-        ass_qs = ass_qs.filter(task__name__icontains=q)
+        rep_qs = rep_qs.filter(task__name__icontains=q)
 
-    task_ids = ass_qs.values('task_id').distinct()
+    task_ids = rep_qs.values('task_id').distinct()
     qs = Task.objects.filter(id_task__in=Subquery(task_ids))
 
-    # Исключаем задачи, которые хотя бы у одного видимого получателя были отменены
-    cancelled_for_visible = Report.objects.filter(
-        task_id=OuterRef('id_task'),
-        status_id=4,
-        curator_id__in=Subquery(ass_qs.values('curator_id')),
-    )
-    qs = qs.annotate(_has_cancelled=Exists(cancelled_for_visible)) \
-           .filter(_has_cancelled=False)
+    visible_curators = allowed_recipients_base_qs(user).values('id_tg')
 
-    if scope in ('group', 'individual'):
-        ass_count = (ass_qs.values('task_id')
-                           .annotate(n=Count('curator_id'))
-                           .filter(task_id=OuterRef('id_task'))
-                           .values('n')[:1])
-        qs = qs.annotate(_n=Subquery(ass_count))
-        qs = qs.filter(_n__gte=2) if scope == 'group' else qs.filter(_n=1)
+    personal_exists = Exists(
+        Assignment.objects
+        .filter(task_id=OuterRef('id_task'), curator_id__in=Subquery(visible_curators))
+    )
+    group_exists = Exists(
+        Assignment.objects
+        .filter(task_id=OuterRef('id_task'), curator_id__isnull=True)
+    )
+
+    qs = qs.annotate(_has_personal=personal_exists,
+                     _has_group=group_exists)
+
+    cancelled_for_visible = rep_qs.filter(
+        task_id=OuterRef('id_task'), status_id=4)
+    qs = qs.annotate(_has_cancelled=Exists(
+        cancelled_for_visible)).filter(_has_cancelled=False)
+
+    if scope == 'group':
+        qs = qs.filter(_has_group=True)
+    elif scope == 'individual':
+        qs = qs.filter(
+            Q(_has_personal=True, _has_group=False)
+            # Q(_has_personal=True, _has_group=True)
+        )
 
     qs = qs.annotate(
         total=Count(
             'reports',
-            filter=Q(
-                reports__curator_id__in=Subquery(ass_qs.values('curator_id'))
-            ) & ~Q(reports__status_id__in=EXCLUDE_FROM_TOTAL_STATUSES),
+            filter=Q(reports__curator_id__in=Subquery(rep_qs.values('curator_id'))) &
+            ~Q(reports__status_id__in=EXCLUDE_FROM_TOTAL_STATUSES),
             distinct=True,
         ),
         completed=Count(
             'reports',
-            filter=Q(
-                reports__curator_id__in=Subquery(ass_qs.values('curator_id'))
-            ) & Q(reports__status_id__in=COMPLETED_STATUSES),
+            filter=Q(reports__curator_id__in=Subquery(rep_qs.values('curator_id'))) &
+            Q(reports__status_id__in=COMPLETED_STATUSES),
             distinct=True,
         ),
     ).annotate(
@@ -204,12 +213,16 @@ def task_cards_queryset(
             default=Value('Не начато'),
             output_field=CharField(),
         ),
-        sample_names=ArrayAgg('assignments__curator__name',
-                              filter=Q(assignments__in=ass_qs),
-                              distinct=True),
+        sample_names=ArrayAgg(
+            'reports__curator__name',
+            filter=Q(reports__curator_id__in=Subquery(
+                rep_qs.values('curator_id'))),
+            distinct=True,
+        ),
         created=Min(
             'reports__timestamp_start',
-            filter=Q(reports__curator_id__in=Subquery(ass_qs.values('curator_id')))
+            filter=Q(reports__curator_id__in=Subquery(
+                rep_qs.values('curator_id')))
         ),
     )
 
