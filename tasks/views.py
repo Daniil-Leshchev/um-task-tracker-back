@@ -15,7 +15,7 @@ from users.constants import (
     ROLE_CURATOR_STANDARD, ROLE_MENTOR_PERSONAL, ROLE_MENTOR_STANDARD,
     ROLE_CHAT_MANAGER, ROLE_OKK
 )
-from .services import AssignmentInput, create_task_and_assign, task_cards_queryset
+from .services import AssignmentInput, create_task_and_assign, task_cards_queryset, visible_reports_for
 from .serializers import TaskCreateSerializer, TaskCardSerializer, TaskDetailSerializer, ReportDetailSerializer
 from .constants import EXCLUDE_FROM_TOTAL_STATUSES
 from .models import Task, Report
@@ -204,13 +204,15 @@ class TaskDetailView(APIView):
     def get(self, request, task_id: int):
         get_object_or_404(Task, pk=task_id)
 
-        qs = (Report.objects
-              .select_related('curator', 'curator__role')
-              .filter(task_id=task_id)
-              .exclude(status_id__in=EXCLUDE_FROM_TOTAL_STATUSES))
+        qs = (
+            visible_reports_for(request.user)
+            .filter(task_id=task_id)
+            .exclude(status_id__in=EXCLUDE_FROM_TOTAL_STATUSES)
+            .select_related('curator', 'curator__role')
+        )
 
         data = TaskDetailSerializer(qs, many=True).data
-        return Response(data)
+        return Response(data, status=200)
 
 
 class ReportDetailView(APIView):
