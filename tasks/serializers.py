@@ -6,32 +6,40 @@ Curator = get_user_model()
 
 
 class TaskCreateSerializer(serializers.Serializer):
-    id_task = serializers.CharField(max_length=100)
     deadline = serializers.DateTimeField()
     name = serializers.CharField(max_length=200)
     description = serializers.CharField()
     report = serializers.CharField()
 
     subject_id = serializers.IntegerField(required=False)
-    department_id = serializers.IntegerField(required=False)
-    role_ids = serializers.ListField(
-        child=serializers.IntegerField(), required=False
-    )
+    department_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
+    department_id = serializers.IntegerField(required=False, write_only=True)
+    role_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
 
     id_tg_list = serializers.ListField(
-        child=serializers.IntegerField(), required=False
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=False
     )
-    single_id_tg = serializers.IntegerField(required=False)
+    single_id_tg = serializers.IntegerField(required=False, min_value=1)
 
     def validate(self, attrs):
-        # Должно быть указано хоть что-то (группа или конкретный)
-        if not any([attrs.get('subject_id'),
-                    attrs.get('department_id'),
-                    attrs.get('role_ids'),
-                    attrs.get('id_tg_list'),
-                    attrs.get('single_id_tg')]):
+        if 'department_ids' not in attrs and attrs.get('department_id') is not None:
+            attrs['department_ids'] = [attrs['department_id']]
+
+        lst = attrs.get('id_tg_list') or None
+        has_list = lst and len(lst) > 0
+        if has_list:
+            return attrs
+
+        dep_ids = attrs.get('department_ids') or []
+        role_ids = attrs.get('role_ids') or []
+        if not attrs.get('subject_id') or len(dep_ids) == 0 or len(role_ids) == 0:
+            print('here')
             raise serializers.ValidationError(
-                'Нужно задать группу или конкретного куратор(а).')
+                'Для группового назначения укажите subject_id, department_ids и role_ids.'
+            )
+
         return attrs
 
 

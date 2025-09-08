@@ -1,5 +1,4 @@
 from django.shortcuts import get_object_or_404
-from tasks.services import AssignmentInput, build_targets_qs
 from tasks.serializers import RecipientCuratorSerializer
 from users.models import Curator
 from rest_framework import status
@@ -7,7 +6,6 @@ from django.db.models import QuerySet
 from typing import Optional, List
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from users.permissions import IsConfirmedUser
 from users.constants import (
@@ -15,7 +13,7 @@ from users.constants import (
     ROLE_CURATOR_STANDARD, ROLE_MENTOR_PERSONAL, ROLE_MENTOR_STANDARD,
     ROLE_CHAT_MANAGER, ROLE_OKK
 )
-from .services import AssignmentInput, create_task_and_assign, task_cards_queryset, visible_reports_for
+from .services import AssignmentInput, create_task_and_assign, task_cards_queryset, visible_reports_for, build_targets_qs
 from .serializers import TaskCreateSerializer, TaskCardSerializer, TaskDetailSerializer, ReportDetailSerializer
 from .constants import EXCLUDE_FROM_TOTAL_STATUSES
 from .models import Task, Report
@@ -86,26 +84,53 @@ class AssignmentPolicyView(APIView):
         return Response(payload)
 
 
-class TaskCreateView(APIView):
+class TaskListCreateView(APIView):
     permission_classes = (IsAuthenticated, IsConfirmedUser)
+
+    def get(self, request):
+        scope = request.query_params.get('scope', 'all')
+        subject_id = request.query_params.get('subject_id')
+        department_id = request.query_params.get('department_id')
+        q = request.query_params.get('q')
+
+        try:
+            subject_id = int(subject_id) if subject_id else None
+            department_id = int(department_id) if department_id else None
+        except ValueError:
+            return Response({'detail': 'IDs must be integers'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = task_cards_queryset(
+            request.user,
+            scope=scope,
+            subject_id=subject_id,
+            department_id=department_id,
+            q=q,
+        ).order_by('-deadline', '-id_task')
+
+        return Response(TaskCardSerializer(qs, many=True).data, status=200)
 
     def post(self, request):
         ser = TaskCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
 
+        department_ids = (
+            ser.validated_data.get('department_ids')
+            or ([ser.validated_data.get('department_id')]
+                if ser.validated_data.get('department_id') is not None else None)
+        )
+
         author = request.user
         inp = AssignmentInput(
             subject_id=ser.validated_data.get('subject_id'),
-            department_id=ser.validated_data.get('department_id'),
+            department_ids=department_ids,
             role_ids=ser.validated_data.get('role_ids'),
             id_tg_list=ser.validated_data.get('id_tg_list'),
             single_id_tg=ser.validated_data.get('single_id_tg'),
         )
 
         try:
-            task = create_task_and_assign(
+            task, assignments, delivery = create_task_and_assign(
                 author=author,
-                id_task=ser.validated_data['id_task'],
                 deadline=ser.validated_data['deadline'],
                 name=ser.validated_data['name'],
                 description=ser.validated_data['description'],
@@ -115,7 +140,31 @@ class TaskCreateView(APIView):
         except ValueError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'id_task': task.id_task}, status=status.HTTP_201_CREATED)
+        if delivery.get('bot_unavailable'):
+            http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+        elif not delivery.get('ok', False):
+            http_status = status.HTTP_207_MULTI_STATUS
+        else:
+            http_status = status.HTTP_201_CREATED
+
+        payload = {
+            'id_task': task.id_task,
+            'assignments': [
+                {
+                    'assignment_id': r['assignment_id'],
+                    'status': r['status'],
+                    'undelivered': r.get('undelivered_names', []),
+                    'error': r['error'],
+                }
+                for r in delivery.get('assignments', [])
+            ],
+            'summary': delivery.get('summary', {}),
+            'ok': delivery.get('ok'),
+            'undelivered_all': delivery.get('undelivered_names_all', []),
+            'bot_unavailable': delivery.get('bot_unavailable', False),
+        }
+
+        return Response(payload, status=http_status)
 
 
 def _to_int(val: Optional[str]) -> Optional[int]:
@@ -149,14 +198,18 @@ class AllowedRecipientsListView(APIView):
         author: Curator = request.user
 
         subject_id = _to_int(request.query_params.get('subject_id'))
-        department_id = _to_int(request.query_params.get('department_id'))
+        department_ids = _to_int_list(
+            request.query_params.get('department_ids'))
+        if department_ids is None:
+            single_dep = _to_int(request.query_params.get('department_id'))
+            department_ids = [single_dep] if single_dep is not None else None
         role_ids = _to_int_list(request.query_params.get('role_ids'))
         single_id_tg = _to_int(request.query_params.get('single_id_tg'))
         id_tg_list = _to_int_list(request.query_params.get('id_tg_list'))
 
         inp = AssignmentInput(
             subject_id=subject_id,
-            department_id=department_id,
+            department_ids=department_ids,
             role_ids=role_ids,
             id_tg_list=id_tg_list,
             single_id_tg=single_id_tg,
@@ -172,36 +225,10 @@ class AllowedRecipientsListView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
-class TaskCardListView(APIView):
-    permission_classes = (IsAuthenticated, IsConfirmedUser)
-
-    def get(self, request):
-        scope = request.query_params.get('scope', 'all')
-        subject_id = request.query_params.get('subject_id')
-        department_id = request.query_params.get('department_id')
-        q = request.query_params.get('q')
-
-        try:
-            subject_id = int(subject_id) if subject_id else None
-            department_id = int(department_id) if department_id else None
-        except ValueError:
-            return Response({'detail': 'IDs must be integers'}, status=status.HTTP_400_BAD_REQUEST)
-
-        qs = task_cards_queryset(
-            request.user,
-            scope=scope,
-            subject_id=subject_id,
-            department_id=department_id,
-            q=q,
-        ).order_by('-deadline', '-id_task')
-
-        return Response(TaskCardSerializer(qs, many=True).data)
-
-
 class TaskDetailView(APIView):
     permission_classes = (IsAuthenticated, IsConfirmedUser)
 
-    def get(self, request, task_id: int):
+    def get(self, request, task_id: str):
         get_object_or_404(Task, pk=task_id)
 
         qs = (

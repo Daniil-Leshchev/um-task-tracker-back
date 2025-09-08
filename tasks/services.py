@@ -1,37 +1,43 @@
 from typing import Iterable, Optional
-from django.utils import timezone
 from django.db import transaction, connection
 from users.models import Curator
 from tasks.models import Task, Assignment, Report
+from catalogs.models import Subject
 from .policies import allowed_recipients_base_qs
 from django.db.models import (
     Q, Count, F, Case, When, Value, QuerySet, FloatField, CharField,
     Min, OuterRef, Subquery, Exists
 )
 from django.contrib.postgres.aggregates import ArrayAgg
-from .constants import NOT_COMPLETED_STATUS, EXCLUDE_FROM_TOTAL_STATUSES, COMPLETED_STATUSES
+from .constants import EXCLUDE_FROM_TOTAL_STATUSES, COMPLETED_STATUSES
+from .bot_client import (
+    bot_ping,
+    bot_send_assignment,
+)
 
 
-def _next_task_id_for_subject(author: Curator) -> str:
-    subject_id = getattr(getattr(author, 'subject', None), 'id_subject', None)
-    lock_id = subject_id if subject_id is not None else 0
-    name = getattr(getattr(author, 'subject', None), 'name', None)
-    if name:
-        prefix = name[:3].lower()
-    else:
-        prefix = 'tsk'
+def _next_task_id_for_subject(subject_id: int | None) -> str:
+    lock_id = subject_id or 0
+
+    prefix = 'tsk'
+    if subject_id:
+        subj = Subject.objects.filter(pk=subject_id).only('subject').first()
+        if subj and getattr(subj, 'subject', None):
+            prefix = (subj.subject or '').strip().lower()[:3] or 'tsk'
+
     with connection.cursor() as cursor:
         cursor.execute('SELECT pg_advisory_xact_lock(%s);', [lock_id])
-        qs = Task.objects.filter(id_task__startswith=f'{prefix}-')
+
         max_num = 0
-        for t in qs:
+        for task_id in Task.objects.filter(id_task__startswith=f'{prefix}-').values_list('id_task', flat=True):
             try:
-                suffix = t.id_task.split('-', 1)[1]
+                suffix = str(task_id).split('-', 1)[1]
                 num = int(suffix)
                 if num > max_num:
                     max_num = num
             except Exception:
                 continue
+
         return f'{prefix}-{max_num + 1}'
 
 
@@ -40,13 +46,13 @@ class AssignmentInput:
         self,
         *,
         subject_id: Optional[int] = None,
-        department_id: Optional[int] = None,
+        department_ids: Optional[Iterable[int]] = None,
         role_ids: Optional[Iterable[int]] = None,
         id_tg_list: Optional[Iterable[int]] = None,
         single_id_tg: Optional[int] = None
     ):
         self.subject_id = subject_id
-        self.department_id = department_id
+        self.department_ids = list(department_ids) if department_ids else None
         self.role_ids = list(role_ids) if role_ids else None
         self.id_tg_list = list(id_tg_list) if id_tg_list else None
         self.single_id_tg = single_id_tg
@@ -56,24 +62,21 @@ def build_targets_qs(author: Curator, inp: AssignmentInput) -> QuerySet[Curator]
     base = (allowed_recipients_base_qs(author)
             .select_related('role', 'department', 'subject'))
 
-    # индивидуальная выдача имеет приоритет
     if inp.single_id_tg:
         return base.filter(pk=inp.single_id_tg)
     if inp.id_tg_list:
         return base.filter(pk__in=inp.id_tg_list)
 
-    # групповые фильтры (только узкое пересечение с base)
     if inp.subject_id:
         base = base.filter(subject_id=inp.subject_id)
-    if inp.department_id:
-        base = base.filter(department_id=inp.department_id)
+    if inp.department_ids:
+        base = base.filter(department_id__in=inp.department_ids)
     if inp.role_ids:
         base = base.filter(role__id_role__in=inp.role_ids)
 
     return base
 
 
-@transaction.atomic
 def create_task_and_assign(
     *,
     author: Curator,
@@ -82,53 +85,146 @@ def create_task_and_assign(
     description: str,
     report_template: str,
     recipients: AssignmentInput
-) -> Task:
-    """
-    Создаёт задачу с уникальным id_task для предмета автора, и назначает её выбранным получателям.
-    """
-    # 1) Валидация, что автор вообще кому-то может назначать
+) -> tuple[Task, list[Assignment], dict]:
     qs_allowed = build_targets_qs(author, recipients)
-    targets = list(qs_allowed)
-    if not targets:
+    if not qs_allowed.exists():
         raise ValueError('Нет ни одного получателя по вашим правам/фильтрам.')
 
-    # 2) Генерируем уникальный id_task для предмета
-    task_id = _next_task_id_for_subject(author)
-
-    # 3) Создаём Task
-    task = Task.objects.create(
-        id_task=task_id,
-        deadline=deadline,
-        name=name,
-        description=description,
-        report=report_template,
-        author=author
+    task_id = _next_task_id_for_subject(
+        recipients.subject_id or getattr(author, 'subject_id', None)
     )
 
-    # 4) Готовим Assignment и стартовые Report
-    now = timezone.now()
-    assigns = []
-    reports = []
-    for tgt in targets:
-        assigns.append(Assignment(
-            task=task,
-            subject=tgt.subject,
-            department=tgt.department,
-            role=tgt.role,
-            curator=tgt,
+    delivery_result: dict = {
+        'ok': None,
+        'bot_unavailable': False,
+        'assignments': [],
+        'summary': {
+            'total': 0,
+            'sent': 0,
+            'partial': 0,
+            'failed': 0,
+        },
+    }
+
+    assignments: list[Assignment] = []
+    assignment_ids: list[int] = []
+
+    with transaction.atomic():
+        task = Task.objects.create(
+            id_task=task_id,
+            deadline=deadline,
+            name=name,
+            description=description,
+            report=report_template,
             author=author
-        ))
-        reports.append(Report(
-            curator=tgt,
-            task=task,
-            status_id=NOT_COMPLETED_STATUS,
-            timestamp_start=now
-        ))
+        )
 
-    Assignment.objects.bulk_create(assigns, batch_size=1000)
-    Report.objects.bulk_create(reports, batch_size=1000)
+        if recipients.single_id_tg or recipients.id_tg_list:
+            curators = list(qs_allowed)
+            if not curators:
+                raise ValueError('Получатель не найден или недоступен.')
+            for curator in curators:
+                a = Assignment.objects.create(
+                    task=task,
+                    subject=curator.subject,
+                    department=curator.department,
+                    role=curator.role,
+                    curator=curator,
+                    author=author
+                )
+                assignments.append(a)
+                assignment_ids.append(a.id_assignment)
 
-    return task
+        else:
+            if not (recipients.subject_id and recipients.department_ids and recipients.role_ids):
+                raise ValueError('Для группового назначения укажите subject_id, department_ids и role_ids.')
+            for department_id in recipients.department_ids:
+                for role_id in recipients.role_ids:
+                    a = Assignment.objects.create(
+                        task=task,
+                        subject_id=recipients.subject_id,
+                        department_id=department_id,
+                        role_id=role_id,
+                        curator=None,
+                        author=author
+                    )
+                    assignments.append(a)
+                    assignment_ids.append(a.id_assignment)
+
+        def _after_commit():
+            if not bot_ping():
+                delivery_result['ok'] = False
+                delivery_result['bot_unavailable'] = True
+                delivery_result['summary'] = {
+                    'total': len(assignment_ids),
+                    'sent': 0,
+                    'partial': 0,
+                    'failed': len(assignment_ids),
+                }
+                return
+
+            a_by_id = {a.id_assignment: a for a in assignments}
+
+            total = len(assignment_ids)
+            sent = partial = failed = 0
+            detailed: list[dict] = []
+            all_undelivered_tg: list[int] = []
+
+            for a_id in assignment_ids:
+                r = bot_send_assignment(a_id)
+
+                undelivered = (r.get('undelivered_tg') or r.get('undelivered') or [])
+                is_individual = bool(a_by_id.get(a_id) and a_by_id[a_id].curator_id)
+                status = r.get('status')
+
+                if status != 'sent':
+                    if is_individual and undelivered:
+                        status = 'failed'
+                    elif undelivered and status != 'failed':
+                        status = 'partially_sent'
+                    elif r.get('error'):
+                        status = 'failed'
+
+                if status == 'sent':
+                    sent += 1
+                elif status == 'partially_sent':
+                    partial += 1
+                else:
+                    failed += 1
+
+                all_undelivered_tg.extend(undelivered)
+                detailed.append({
+                    'assignment_id': a_id,
+                    'status': status,
+                    'undelivered_tg': undelivered,
+                    'error': r.get('error')
+                })
+
+            id_to_name = dict(
+                Curator.objects
+                .filter(id_tg__in=all_undelivered_tg)
+                .values_list('id_tg', 'name')
+            )
+
+            for row in detailed:
+                names = [id_to_name.get(tg_id, str(tg_id)) for tg_id in row.pop('undelivered_tg', [])]
+                row['undelivered_names'] = names
+
+            delivery_result['assignments'] = detailed
+            delivery_result['summary'] = {
+                'total': total,
+                'sent': sent,
+                'partial': partial,
+                'failed': failed,
+            }
+            delivery_result['ok'] = (failed == 0)
+            delivery_result['undelivered_names_all'] = [
+                id_to_name.get(tg_id, str(tg_id)) for tg_id in all_undelivered_tg
+            ]
+
+        transaction.on_commit(_after_commit)
+
+    return task, assignments, delivery_result
 
 
 def visible_reports_for(user: Curator):
