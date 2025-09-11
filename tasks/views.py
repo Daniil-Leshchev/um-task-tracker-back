@@ -3,7 +3,7 @@ from tasks.serializers import RecipientCuratorSerializer
 from users.models import Curator
 from rest_framework import status
 from django.db.models import QuerySet
-from typing import Optional, List
+from typing import Optional, List, Sequence
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -124,8 +124,8 @@ class TaskListCreateView(APIView):
             subject_id=ser.validated_data.get('subject_id'),
             department_ids=department_ids,
             role_ids=ser.validated_data.get('role_ids'),
-            id_tg_list=ser.validated_data.get('id_tg_list'),
-            single_id_tg=ser.validated_data.get('single_id_tg'),
+            emails=ser.validated_data.get('emails'),
+            single_email=ser.validated_data.get('single_email'),
         )
 
         try:
@@ -191,6 +191,17 @@ def _to_int_list(val: Optional[str]) -> Optional[List[int]]:
     return out or None
 
 
+def _to_str_list(val: Optional[str]) -> Optional[List[str]]:
+    if not val:
+        return None
+    out: List[str] = []
+    for part in val.split(','):
+        part = part.strip()
+        if part:
+            out.append(part)
+    return out or None
+
+
 class AllowedRecipientsListView(APIView):
     permission_classes = (IsAuthenticated, IsConfirmedUser)
 
@@ -204,15 +215,15 @@ class AllowedRecipientsListView(APIView):
             single_dep = _to_int(request.query_params.get('department_id'))
             department_ids = [single_dep] if single_dep is not None else None
         role_ids = _to_int_list(request.query_params.get('role_ids'))
-        single_id_tg = _to_int(request.query_params.get('single_id_tg'))
-        id_tg_list = _to_int_list(request.query_params.get('id_tg_list'))
+        single_email = request.query_params.get('single_email') or None
+        emails = _to_str_list(request.query_params.get('emails'))
 
         inp = AssignmentInput(
             subject_id=subject_id,
             department_ids=department_ids,
             role_ids=role_ids,
-            id_tg_list=id_tg_list,
-            single_id_tg=single_id_tg,
+            emails=emails,
+            single_email=single_email,
         )
 
         qs: QuerySet[Curator] = (
@@ -245,11 +256,11 @@ class TaskDetailView(APIView):
 class ReportDetailView(APIView):
     permission_classes = (IsAuthenticated, IsConfirmedUser)
 
-    def get(self, request, task_id, id_tg):
+    def get(self, request, task_id, email):
         report = get_object_or_404(
             Report.objects.select_related('task', 'curator', 'curator__role'),
             task__id_task=task_id,
-            curator__id_tg=id_tg
+            curator__email=email
         )
         data = ReportDetailSerializer(report).data
         return Response(data, status=status.HTTP_200_OK)

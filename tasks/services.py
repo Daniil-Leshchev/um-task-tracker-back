@@ -48,24 +48,25 @@ class AssignmentInput:
         subject_id: Optional[int] = None,
         department_ids: Optional[Iterable[int]] = None,
         role_ids: Optional[Iterable[int]] = None,
-        id_tg_list: Optional[Iterable[int]] = None,
-        single_id_tg: Optional[int] = None
+        emails: Optional[Iterable[str]] = None,
+        single_email: Optional[str] = None,
     ):
         self.subject_id = subject_id
         self.department_ids = list(department_ids) if department_ids else None
         self.role_ids = list(role_ids) if role_ids else None
-        self.id_tg_list = list(id_tg_list) if id_tg_list else None
-        self.single_id_tg = single_id_tg
+
+        self.emails = list(emails) if emails else None
+        self.single_email = single_email
 
 
 def build_targets_qs(author: Curator, inp: AssignmentInput) -> QuerySet[Curator]:
     base = (allowed_recipients_base_qs(author)
             .select_related('role', 'department', 'subject'))
 
-    if inp.single_id_tg:
-        return base.filter(pk=inp.single_id_tg)
-    if inp.id_tg_list:
-        return base.filter(pk__in=inp.id_tg_list)
+    if getattr(inp, 'single_email', None):
+        return base.filter(email=inp.single_email)
+    if getattr(inp, 'emails', None):
+        return base.filter(email__in=inp.emails)
 
     if inp.subject_id:
         base = base.filter(subject_id=inp.subject_id)
@@ -119,7 +120,9 @@ def create_task_and_assign(
             author=author
         )
 
-        if recipients.single_id_tg or recipients.id_tg_list:
+        is_individual = bool(recipients.single_email or recipients.emails)
+
+        if is_individual:
             curators = list(qs_allowed)
             if not curators:
                 raise ValueError('Получатель не найден или недоступен.')
@@ -171,6 +174,19 @@ def create_task_and_assign(
             all_undelivered_tg: list[int] = []
 
             for a_id in assignment_ids:
+                a = a_by_id[a_id]
+                cur = a.curator
+
+                if cur and not cur.id_tg:
+                    detailed.append({
+                        'assignment_id': a_id,
+                        'status': 'failed',
+                        'undelivered_tg': [],
+                        'error': 'no_id_tg',
+                    })
+                    failed += 1
+                    continue
+
                 r = bot_send_assignment(a_id)
 
                 undelivered = (r.get('undelivered_tg') or r.get('undelivered') or [])
@@ -228,7 +244,7 @@ def create_task_and_assign(
 
 
 def visible_reports_for(user: Curator):
-    allowed_curators = allowed_recipients_base_qs(user).values('id_tg')
+    allowed_curators = allowed_recipients_base_qs(user).values('pk')
     return (Report.objects
             .select_related('task', 'curator', 'curator__role', 'curator__department', 'curator__subject')
             .filter(curator_id__in=Subquery(allowed_curators)))
@@ -256,7 +272,7 @@ def task_cards_queryset(
     task_ids = rep_qs.values('task_id').distinct()
     qs = Task.objects.filter(id_task__in=Subquery(task_ids))
 
-    visible_curators = allowed_recipients_base_qs(user).values('id_tg')
+    visible_curators = allowed_recipients_base_qs(user).values('pk')
 
     personal_exists = Exists(
         Assignment.objects

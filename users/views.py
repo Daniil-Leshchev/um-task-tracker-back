@@ -62,9 +62,9 @@ class AdminUserListView(ListAPIView):
 class ConfirmUserView(APIView):
     permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
 
-    def patch(self, request, id_tg: int):
+    def patch(self, request, email: str):
         user = get_object_or_404(Curator.objects.select_related('subject', 'department', 'role'),
-                                 pk=id_tg)
+                                 pk=email)
         # можно прислать { "confirm": true/false }, по умолчанию true
         payload = ConfirmPayloadSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -81,20 +81,20 @@ class DeleteUserView(generics.DestroyAPIView):
     queryset = Curator.objects.all()
     serializer_class = AdminUserSerializer
     permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
-    lookup_field = 'id_tg'
+    lookup_field = 'email'
 
 
 class MentorListForAssignmentView(APIView):
     permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
 
     def get(self, request):
-        target_id_tg = request.query_params.get('target_id_tg')
-        if not target_id_tg:
-            return Response({'detail': 'Параметр target_id_tg обязателен.'}, status=status.HTTP_400_BAD_REQUEST)
+        target_email = request.query_params.get('target_email')
+        if not target_email:
+            return Response({'detail': 'Параметр target_email обязателен.'}, status=status.HTTP_400_BAD_REQUEST)
 
         target = get_object_or_404(
             Curator.objects.select_related('role', 'department'),
-            pk=target_id_tg
+            pk=target_email
         )
         target_role_id = getattr(
             getattr(target, 'role', None), 'id_role', None)
@@ -103,13 +103,11 @@ class MentorListForAssignmentView(APIView):
         if target_role_id is None:
             return Response({'detail': 'У целевого куратора не задана роль.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Допустимые роли наставников для этой роли куратора
         allowed_roles = ROLE_TO_ALLOWED_MENTOR_ROLE_IDS.get(
             target_role_id, set())
         if not allowed_roles:
             return Response([], status=status.HTTP_200_OK)
 
-        # Подбор наставников: по допустимым ролям и тому же департаменту, только подтверждённые
         qs = (
             Curator.objects
             .select_related('role', 'subject', 'department')
@@ -126,19 +124,19 @@ class MentorListForAssignmentView(APIView):
 class AssignMentorView(APIView):
     permission_classes = (IsAuthenticated, IsAdmin, IsConfirmedUser)
 
-    def patch(self, request, id_tg: int):
-        mentor_id_tg = request.data.get('mentor_id_tg')
-        if not mentor_id_tg:
-            return Response({'detail': 'mentor_id_tg обязателен.'}, status=status.HTTP_400_BAD_REQUEST)
+    def patch(self, request, email: str):
+        mentor_email = request.data.get('mentor_email')
+        if not mentor_email:
+            return Response({'detail': 'mentor_email обязателен.'}, status=status.HTTP_400_BAD_REQUEST)
 
         curator = get_object_or_404(
             Curator.objects.select_related('role', 'department', 'subject'),
-            pk=id_tg
+            pk=email
         )
 
         mentor = get_object_or_404(
             Curator.objects.select_related('role', 'department', 'subject'),
-            pk=mentor_id_tg
+            pk=mentor_email
         )
 
         curator_role_id = getattr(

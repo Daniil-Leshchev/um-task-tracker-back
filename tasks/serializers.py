@@ -16,18 +16,18 @@ class TaskCreateSerializer(serializers.Serializer):
     department_id = serializers.IntegerField(required=False, write_only=True)
     role_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
 
-    id_tg_list = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
+    emails = serializers.ListField(
+        child=serializers.CharField(),
         required=False,
         allow_empty=False
     )
-    single_id_tg = serializers.IntegerField(required=False, min_value=1)
+    single_email = serializers.CharField(required=False)
 
     def validate(self, attrs):
         if 'department_ids' not in attrs and attrs.get('department_id') is not None:
             attrs['department_ids'] = [attrs['department_id']]
 
-        lst = attrs.get('id_tg_list') or None
+        lst = attrs.get('emails') or None
         has_list = lst and len(lst) > 0
         if has_list:
             return attrs
@@ -51,7 +51,7 @@ class RecipientCuratorSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Curator
-        fields = ('id_tg', 'name', 'role', 'subject', 'department')
+        fields = ('email', 'name', 'role', 'subject', 'department')
 
 
 class TaskCardSerializer(serializers.ModelSerializer):
@@ -89,7 +89,7 @@ STATUS_MAP = {
 
 
 class TaskDetailSerializer(serializers.ModelSerializer):
-    id_tg = serializers.IntegerField(source='curator.id_tg', read_only=True)
+    email = serializers.CharField(source='curator.email', read_only=True)
     name = serializers.CharField(source='curator.name', read_only=True)
     role = serializers.CharField(source='curator.role.role', read_only=True)
 
@@ -104,7 +104,7 @@ class TaskDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Report
-        fields = ('id_tg', 'name', 'role', 'status',
+        fields = ('email', 'name', 'role', 'status',
                   'completedAt', 'reportUrl', 'reportText')
 
     def get_status(self, obj):

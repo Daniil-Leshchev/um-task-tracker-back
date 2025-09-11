@@ -10,7 +10,7 @@ class CuratorManager(BaseUserManager):
             raise ValueError("Email обязателен")
         return self.normalize_email(email)
 
-    def create_user(self, email: str, password: str = None, **extra_fields):
+    def create_user(self, email: str, password: str | None = None, **extra_fields):
         email = self._normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
@@ -19,25 +19,44 @@ class CuratorManager(BaseUserManager):
 
 
 class Curator(AbstractBaseUser):
-    id_tg = models.BigIntegerField(primary_key=True, db_column="id_tg")
+    email = models.EmailField(
+        max_length=100,
+        db_column="mail",
+        primary_key=True,
+    )
+
+    id_tg = models.BigIntegerField(
+        db_column="id_tg",
+        null=True,
+        blank=True,
+    )
+
     name = models.CharField(max_length=100, db_column="name")
 
     subject = models.ForeignKey(
-        "catalogs.Subject", on_delete=models.PROTECT, db_column="id_subject", related_name="curators"
+        "catalogs.Subject",
+        on_delete=models.PROTECT,
+        db_column="id_subject",
+        related_name="curators",
     )
     department = models.ForeignKey(
-        "catalogs.Department", on_delete=models.PROTECT, db_column="id_department", related_name="curators"
+        "catalogs.Department",
+        on_delete=models.PROTECT,
+        db_column="id_department",
+        related_name="curators",
     )
     role = models.ForeignKey(
-        "catalogs.Role", on_delete=models.PROTECT, db_column="id_role", related_name="curators"
+        "catalogs.Role",
+        on_delete=models.PROTECT,
+        db_column="id_role",
+        related_name="curators",
     )
 
-    email = models.EmailField(max_length=100, db_column="mail", unique=True)
     password = models.TextField(db_column="password")
 
-    mail_mg = models.CharField(
-        max_length=100, db_column="mail_mg", null=True, blank=True)
+    mail_mg = models.CharField(max_length=100, db_column="mail_mg", null=True, blank=True)
     confirm = models.BooleanField(db_column="confirm", default=False)
+
     last_login = None
 
     objects = CuratorManager()
@@ -52,5 +71,5 @@ class Curator(AbstractBaseUser):
         verbose_name = "Куратор"
         verbose_name_plural = "Кураторы"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name}"

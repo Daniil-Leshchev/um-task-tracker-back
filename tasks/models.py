@@ -1,6 +1,5 @@
 from django.db import models
 from users.models import Curator
-from catalogs.models import Subject, Department, Role, Status
 
 
 class Task(models.Model):
@@ -12,9 +11,9 @@ class Task(models.Model):
     report = models.TextField(db_column="report")
     author = models.ForeignKey(
         Curator,
-        to_field="id_tg",
+        to_field="email",
         on_delete=models.PROTECT,
-        db_column="id_author",
+        db_column="mail_author",
         related_name="authored_tasks",
     )
 
@@ -61,18 +60,18 @@ class Assignment(models.Model):
     )
     curator = models.ForeignKey(
         'users.Curator',
-        to_field="id_tg",
+        to_field="email",
         on_delete=models.PROTECT,
-        db_column="id_tg",
+        db_column="mail",
         related_name="assignments",
         null=True,
         blank=True,
     )
     author = models.ForeignKey(
         'users.Curator',
-        to_field="id_tg",
+        to_field="email",
         on_delete=models.PROTECT,
-        db_column="id_author",
+        db_column="mail_author",
         related_name="created_assignments",
     )
 
@@ -91,9 +90,9 @@ class Report(models.Model):
 
     curator = models.ForeignKey(
         'users.Curator',
-        to_field="id_tg",
+        to_field="email",
         on_delete=models.PROTECT,
-        db_column="id_tg",
+        db_column="mail",
         related_name="reports",
     )
     task = models.ForeignKey(
@@ -123,4 +122,4 @@ class Report(models.Model):
         verbose_name_plural = "Отчёты"
 
     def __str__(self):
-        return f"Report #{self.id_report} ({self.curator_id} -> {self.task_id})"
+        return f"Report #{self.id_report} (curator mail: {self.curator_id} -> task {self.task_id})"

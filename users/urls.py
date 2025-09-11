@@ -10,8 +10,8 @@ urlpatterns = [
     path('users/me/update/', UserProfileUpdateView.as_view(),
          name='user-profile-update'),
     path('users/admin-list/', AdminUserListView.as_view(), name='admin-users-list'),
-    path('users/<int:id_tg>/confirm/', ConfirmUserView.as_view(), name='user-confirm'),
-    path('users/<int:id_tg>/delete/', DeleteUserView.as_view(), name='delete-user'),
+    path('users/<str:email>/confirm/', ConfirmUserView.as_view(), name='user-confirm'),
+    path('users/<str:email>/delete/', DeleteUserView.as_view(), name='delete-user'),
     path('users/mentors-for-assignment/', MentorListForAssignmentView.as_view(), name='mentors-for-assignment'),
-    path('users/<int:id_tg>/assign-mentor/', AssignMentorView.as_view(), name='assign-mentor'),
+    path('users/<str:email>/assign-mentor/', AssignMentorView.as_view(), name='assign-mentor'),
 ]

@@ -16,7 +16,6 @@ ALLOWED_HOSTS = [
 ]
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -24,6 +23,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "django_filters",
+    "corsheaders",
     "users",
     "catalogs",
     "tasks"
@@ -108,7 +108,8 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": False,
     "AUTH_HEADER_TYPES": ("Bearer",),
-    "USER_ID_FIELD": "id_tg",
+    "USER_ID_FIELD": "email",
+    "USER_ID_CLAIM": "user_id",
 }
 
 

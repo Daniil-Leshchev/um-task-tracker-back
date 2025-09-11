@@ -10,7 +10,7 @@ Curator = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    id_tg = serializers.IntegerField()
+    id_tg = serializers.IntegerField(required=False, allow_null=True)
     email = serializers.EmailField()
     password = serializers.CharField(min_length=8, write_only=True)
     name = serializers.CharField(max_length=100)
@@ -43,8 +43,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'department_id': 'not_found'})
         if not Role.objects.filter(pk=data['role_id']).exists():
             raise serializers.ValidationError({'role_id': 'not_found'})
-        if Curator.objects.filter(pk=data['id_tg']).exists():
-            raise serializers.ValidationError({'id_tg': 'already_exists'})
+        tg = data.get('id_tg')
+        if tg is not None:
+            if Curator.objects.filter(id_tg=tg).exists():
+                raise serializers.ValidationError({'id_tg': 'already_used'})
         return data
 
     def create(self, validated_data):
@@ -186,7 +188,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = Curator
         fields = (
-            'id_tg',
+            'email',
             'name',
             'subject',
             'department',
@@ -227,4 +229,4 @@ class MentorShortSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Curator
-        fields = ('id_tg', 'name', 'role_id', 'role', 'subject', 'department')
+        fields = ('email', 'name', 'role_id', 'role', 'subject', 'department')
