@@ -12,7 +12,7 @@ class Task(models.Model):
     author = models.ForeignKey(
         Curator,
         to_field="email",
-        on_delete=models.PROTECT,
+        on_delete=models.PROTECT, # если удалим автора задачи – сотрется история выполнения по определенной задаче, но это поле not null
         db_column="mail_author",
         related_name="authored_tasks",
     )
@@ -61,7 +61,7 @@ class Assignment(models.Model):
     curator = models.ForeignKey(
         'users.Curator',
         to_field="email",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         db_column="mail",
         related_name="assignments",
         null=True,
@@ -70,7 +70,7 @@ class Assignment(models.Model):
     author = models.ForeignKey(
         'users.Curator',
         to_field="email",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         db_column="mail_author",
         related_name="created_assignments",
     )
@@ -91,7 +91,7 @@ class Report(models.Model):
     curator = models.ForeignKey(
         'users.Curator',
         to_field="email",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         db_column="mail",
         related_name="reports",
     )
