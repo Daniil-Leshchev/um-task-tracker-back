@@ -93,13 +93,14 @@ class MentorListForAssignmentView(APIView):
             return Response({'detail': 'Параметр target_email обязателен.'}, status=status.HTTP_400_BAD_REQUEST)
 
         target = get_object_or_404(
-            Curator.objects.select_related('role', 'department'),
+            Curator.objects.select_related('role', 'department', 'subject'),
             pk=target_email
         )
         target_role_id = getattr(
             getattr(target, 'role', None), 'id_role', None)
         target_dept_id = getattr(
             getattr(target, 'department', None), 'id_department', None)
+        target_subject_id = getattr(target, 'subject_id', None)
         if target_role_id is None:
             return Response({'detail': 'У целевого куратора не задана роль.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -115,6 +116,8 @@ class MentorListForAssignmentView(APIView):
         )
         if target_dept_id:
             qs = qs.filter(department__id_department=target_dept_id)
+        if target_subject_id:
+            qs = qs.filter(subject_id=target_subject_id)
 
         qs = qs.order_by('name')
         data = MentorShortSerializer(qs, many=True).data
@@ -153,6 +156,10 @@ class AssignMentorView(APIView):
             getattr(mentor,  'department', None), 'id_department', None)
         if curator_dept_id and mentor_dept_id and curator_dept_id != mentor_dept_id:
             return Response({'detail': 'Наставник должен быть из того же направления.'}, status=status.HTTP_400_BAD_REQUEST)
+        curator_subject_id = getattr(curator, 'subject_id', None)
+        mentor_subject_id = getattr(mentor, 'subject_id', None)
+        if curator_subject_id and mentor_subject_id and curator_subject_id != mentor_subject_id:
+            return Response({'detail': 'Наставник должен быть по тому же предмету.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if not mentor.confirm:
             return Response({'detail': 'Наставник ещё не подтверждён.'}, status=status.HTTP_400_BAD_REQUEST)
