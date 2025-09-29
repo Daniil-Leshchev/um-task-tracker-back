@@ -26,7 +26,9 @@ INSTALLED_APPS = [
     "corsheaders",
     "users",
     "catalogs",
-    "tasks"
+    "tasks",
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
 ]
 
 MIDDLEWARE = [
@@ -101,6 +103,21 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": None,
     "PAGE_SIZE": None,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "UmTracker",
+    "DESCRIPTION": "Умная система мониторинга задач",
+    "VERSION": "1.0.0",
+    "SECURITY": [{"bearerAuth": []}],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+        }
+    },
+    "SCHEMA_PATH_PREFIX": r"/api/",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 SIMPLE_JWT = {
